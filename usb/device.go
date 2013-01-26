@@ -160,24 +160,25 @@ found:
 	defer d.lock.Unlock()
 
 	// Only claim when needed
-	if d.claimed[iface] == 0 {
+	if d.claimed[iface] <= 0 {
 		// Set the configuration
 		if errno := C.libusb_set_configuration(d.handle, C.int(conf)); errno < 0 {
 			return nil, fmt.Errorf("usb: setcfg: %s", usbError(errno))
 		}
 
+		fmt.Printf("claiming interface %v", iface)
 		// Claim the interface
 		if errno := C.libusb_claim_interface(d.handle, C.int(iface)); errno < 0 {
 			return nil, fmt.Errorf("usb: claim: %s", usbError(errno))
-		}
 
-		d.claimed[iface]++
+			d.claimed[iface]++
+		}
 
 		// Choose the alternate
-		if errno := C.libusb_set_interface_alt_setting(d.handle, C.int(iface), C.int(setup)); errno < 0 {
-			// This doesn't seem to work on Mac OSX, it works on my Ubuntu machine.
-			log.Printf("ignoring altsetting error: %s", usbError(errno))
-		}
+		// if errno := C.libusb_set_interface_alt_setting(d.handle, C.int(iface), C.int(setup)); errno < 0 {
+		// 	// This doesn't seem to work on Mac OS X, it works on my Ubuntu machine.
+		// 	log.Printf("ignoring altsetting error: %s", usbError(errno))
+		// }
 	}
 
 	return end, nil

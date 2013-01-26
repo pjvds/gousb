@@ -3,8 +3,8 @@ package usb_test
 import (
 	"testing"
 
-	. "github.com/kylelemons/gousb/usb"
-	"github.com/kylelemons/gousb/usbid"
+	. "github.com/pjvds/gousb/usb"
+	"github.com/pjvds/gousb/usbid"
 )
 
 func TestNoop(t *testing.T) {

@@ -1,0 +1,1771 @@
+{
+	"auto_complete":
+	{
+		"selected_items":
+		[
+			[
+				"Pri",
+				"Printf	 ƒ"
+			],
+			[
+				"Pr",
+				"Printf	n int, err error ƒ"
+			],
+			[
+				"E",
+				"Errorf	 ƒ"
+			],
+			[
+				"contr",
+				"controls"
+			],
+			[
+				"control",
+				"control-label"
+			],
+			[
+				"con",
+				"control-group"
+			],
+			[
+				"Tite",
+				"title"
+			],
+			[
+				"Event",
+				"EventSchema"
+			],
+			[
+				"mo",
+				"mongoose"
+			],
+			[
+				"add",
+				"addevent"
+			]
+		]
+	},
+	"buffers":
+	[
+		{
+			"file": "usb/usb_test.go",
+			"settings":
+			{
+				"buffer_size": 2693,
+				"line_ending": "Unix"
+			}
+		},
+		{
+			"file": "usbid/describe.go",
+			"settings":
+			{
+				"buffer_size": 2036,
+				"line_ending": "Unix"
+			}
+		},
+		{
+			"contents": "package usbid\n\nimport (\n	\"log\"\n	\"net/http\"\n	\"strings\"\n\n	\"github.com/pjvds/gousb/usb\"\n)\n\nconst (\n	// LinuxUsbDotOrg is one source of files in the format used by this package.\n	LinuxUsbDotOrg = \"http://www.linux-usb.org/usb.ids\"\n)\n\nvar (\n	// Vendors stores the vendor and product ID mappings.\n	Vendors map[usb.ID]*Vendor\n\n	// Classes stores the class, subclass and protocol mappings.\n	Classes map[uint8]*Class\n)\n\n// LoadFromURL replaces the built-in vendor and class mappings with ones loaded\n// from the given URL.\n//\n// This should usually only be necessary if the mappings in the library are\n// stale.  The contents of this file as of February 2012 are embedded in the\n// library itself.\nfunc LoadFromURL(url string) error {\n	resp, err := http.Get(url)\n	if err != nil {\n		return err\n	}\n	defer resp.Body.Close()\n\n	ids, cls, err := ParseIDs(resp.Body)\n	if err != nil {\n		return err\n	}\n\n	Vendors = ids\n	Classes = cls\n	return nil\n}\n\nfunc init() {\n	ids, cls, err := ParseIDs(strings.NewReader(usbIdListData))\n	if err != nil {\n		log.Printf(\"usbid: failed to parse: %s\", err)\n		return\n	}\n\n	Vendors = ids\n	Classes = cls\n}\n",
+			"file": "usbid/load.go",
+			"file_size": 1120,
+			"file_write_time": 1359198569000000,
+			"settings":
+			{
+				"buffer_size": 1115,
+				"line_ending": "Unix"
+			}
+		},
+		{
+			"contents": "package usbid\n\nimport (\n	\"bufio\"\n	\"fmt\"\n	\"io\"\n	\"strconv\"\n	\"strings\"\n\n	\"github.com/pjvds/gousb/usb\"\n)\n\n// A Vendor contains the name of the vendor and mappings corresponding to all\n// known products by their ID.\ntype Vendor struct {\n	Name    string\n	Product map[usb.ID]*Product\n}\n\n// String returns the name of the vendor.\nfunc (v Vendor) String() string {\n	return v.Name\n}\n\n// A Product contains the name of the product (from a particular vendor) and\n// the names of any interfaces that were specified.\ntype Product struct {\n	Name      string\n	Interface map[usb.ID]string\n}\n\n// String returns the name of the product.\nfunc (p Product) String() string {\n	return p.Name\n}\n\n// A Class contains the name of the class and mappings for each subclass.\ntype Class struct {\n	Name     string\n	SubClass map[uint8]*SubClass\n}\n\n// String returns the name of the class.\nfunc (c Class) String() string {\n	return c.Name\n}\n\n// A SubClass contains the name of the subclass and any associated protocols.\ntype SubClass struct {\n	Name     string\n	Protocol map[uint8]string\n}\n\n// String returns the name of the SubClass.\nfunc (s SubClass) String() string {\n	return s.Name\n}\n\n// ParseIDs parses and returns mappings from the given reader.  In general, this\n// should not be necessary, as a set of mappings is already embedded in the library.\n// If a new or specialized file is obtained, this can be used to retrieve the mappings,\n// which can be stored in the global Vendors and Classes map.\nfunc ParseIDs(r io.Reader) (map[usb.ID]*Vendor, map[uint8]*Class, error) {\n	vendors := make(map[usb.ID]*Vendor, 2800)\n	classes := make(map[uint8]*Class) // TODO(kevlar): count\n\n	split := func(s string) (kind string, level int, id uint64, name string, err error) {\n		pieces := strings.SplitN(s, \"  \", 2)\n		if len(pieces) != 2 {\n			err = fmt.Errorf(\"malformatted line %q\", s)\n			return\n		}\n\n		// Save the name\n		name = pieces[1]\n\n		// Parse out the level\n		for len(pieces[0]) > 0 && pieces[0][0] == '\\t' {\n			level, pieces[0] = level+1, pieces[0][1:]\n		}\n\n		// Parse the first piece to see if it has a kind\n		first := strings.SplitN(pieces[0], \" \", 2)\n		if len(first) == 2 {\n			kind, pieces[0] = first[0], first[1]\n		}\n\n		// Parse the ID\n		i, err := strconv.ParseUint(pieces[0], 16, 16)\n		if err != nil {\n			err = fmt.Errorf(\"malformatted id %q: %s\", pieces[0], err)\n			return\n		}\n		id = i\n\n		return\n	}\n\n	// Hold the interim values\n	var vendor *Vendor\n	var device *Product\n\n	parseVendor := func(level int, raw uint64, name string) error {\n		id := usb.ID(raw)\n\n		switch level {\n		case 0:\n			vendor = &Vendor{\n				Name: name,\n			}\n			vendors[id] = vendor\n\n		case 1:\n			if vendor == nil {\n				return fmt.Errorf(\"product line without vendor line\")\n			}\n\n			device = &Product{\n				Name: name,\n			}\n			if vendor.Product == nil {\n				vendor.Product = make(map[usb.ID]*Product)\n			}\n			vendor.Product[id] = device\n\n		case 2:\n			if device == nil {\n				return fmt.Errorf(\"interface line without device line\")\n			}\n\n			if device.Interface == nil {\n				device.Interface = make(map[usb.ID]string)\n			}\n			device.Interface[id] = name\n\n		default:\n			return fmt.Errorf(\"too many levels of nesting for vendor block\")\n		}\n\n		return nil\n	}\n\n	// Hold the interim values\n	var class *Class\n	var subclass *SubClass\n\n	parseClass := func(level int, raw uint64, name string) error {\n		id := uint8(raw)\n\n		switch level {\n		case 0:\n			class = &Class{\n				Name: name,\n			}\n			classes[id] = class\n\n		case 1:\n			if class == nil {\n				return fmt.Errorf(\"subclass line without class line\")\n			}\n\n			subclass = &SubClass{\n				Name: name,\n			}\n			if class.SubClass == nil {\n				class.SubClass = make(map[uint8]*SubClass)\n			}\n			class.SubClass[id] = subclass\n\n		case 2:\n			if subclass == nil {\n				return fmt.Errorf(\"protocol line without subclass line\")\n			}\n\n			if subclass.Protocol == nil {\n				subclass.Protocol = make(map[uint8]string)\n			}\n			subclass.Protocol[id] = name\n\n		default:\n			return fmt.Errorf(\"too many levels of nesting for class\")\n		}\n\n		return nil\n	}\n\n	// TODO(kevlar): Parse class information, etc\n	//var class *Class\n	//var subclass *SubClass\n\n	var kind string\n\n	lines := bufio.NewReaderSize(r, 512)\nparseLines:\n	for lineno := 0; ; lineno++ {\n		b, isPrefix, err := lines.ReadLine()\n		switch {\n		case err == io.EOF:\n			break parseLines\n		case err != nil:\n			return nil, nil, err\n		case isPrefix:\n			return nil, nil, fmt.Errorf(\"line %d: line too long\", lineno)\n		}\n		line := string(b)\n\n		if len(line) == 0 || line[0] == '#' {\n			continue\n		}\n\n		k, level, id, name, err := split(line)\n		if err != nil {\n			return nil, nil, fmt.Errorf(\"line %d: %s\", lineno, err)\n		}\n		if k != \"\" {\n			kind = k\n		}\n\n		switch kind {\n		case \"\":\n			err = parseVendor(level, id, name)\n		case \"C\":\n			err = parseClass(level, id, name)\n		}\n		if err != nil {\n			return nil, nil, fmt.Errorf(\"line %d: %s\", lineno, err)\n		}\n	}\n\n	return vendors, classes, nil\n}\n",
+			"file": "usbid/parse.go",
+			"file_size": 4891,
+			"file_write_time": 1359198569000000,
+			"settings":
+			{
+				"buffer_size": 4886,
+				"line_ending": "Unix"
+			}
+		},
+		{
+			"file": "usbid/parse_test.go",
+			"settings":
+			{
+				"buffer_size": 2793,
+				"line_ending": "Unix"
+			}
+		},
+		{
+			"contents": "package main\n\nimport (\n	\"flag\"\n	\"fmt\"\n	\"log\"\n\n	\"github.com/pjvds/gousb/usb\"\n	\"github.com/pjvds/gousb/usbid\"\n)\n\nvar (\n	debug = flag.Int(\"debug\", 0, \"libusb debug level (0..3)\")\n)\n\nfunc main() {\n	flag.Parse()\n\n	// Only one context should be needed for an application.  It should always be closed.\n	ctx := usb.NewContext()\n	defer ctx.Close()\n\n	// Debugging can be turned on; this shows some of the inner workings of the libusb package.\n	ctx.Debug(*debug)\n\n	// ListDevices is used to find the devices to open.\n	devs, err := ctx.ListDevices(func(desc *usb.Descriptor) bool {\n		// The usbid package can be used to print out human readable information.\n		fmt.Printf(\"%03d.%03d %s:%s %s\\n\", desc.Bus, desc.Address, desc.Vendor, desc.Product, usbid.Describe(desc))\n		fmt.Printf(\"  Protocol: %s\\n\", usbid.Classify(desc))\n\n		// The configurations can be examined from the Descriptor, though they can only\n		// be set once the device is opened.  All configuration references must be closed,\n		// to free up the memory in libusb.\n		for _, cfg := range desc.Configs {\n			// This loop just uses more of the built-in and usbid pretty printing to list\n			// the USB devices.\n			fmt.Printf(\"  %s:\\n\", cfg)\n			for _, alt := range cfg.Interfaces {\n				fmt.Printf(\"    --------------\\n\")\n				for _, iface := range alt.Setups {\n					fmt.Printf(\"    %s\\n\", iface)\n					fmt.Printf(\"      %s\\n\", usbid.Classify(iface))\n					for _, end := range iface.Endpoints {\n						fmt.Printf(\"      %s\\n\", end)\n					}\n				}\n			}\n			fmt.Printf(\"    --------------\\n\")\n		}\n\n		// After inspecting the descriptor, return true or false depending on whether\n		// the device is \"interesting\" or not.  Any descriptor for which true is returned\n		// opens a Device which is retuned in a slice (and must be subsequently closed).\n		return false\n	})\n\n	// All Devices returned from ListDevices must be closed.\n	defer func() {\n		for _, d := range devs {\n			d.Close()\n		}\n	}()\n\n	// ListDevices can occaionally fail, so be sure to check its return value.\n	if err != nil {\n		log.Fatalf(\"list: %s\", err)\n	}\n\n	for _, dev := range devs {\n		// Once the device has been selected from ListDevices, it is opened\n		// and can be interacted with.\n		_ = dev\n	}\n}\n",
+			"file": "lsusb/main.go",
+			"file_size": 2208,
+			"file_write_time": 1359198569000000,
+			"settings":
+			{
+				"buffer_size": 2198,
+				"line_ending": "Unix"
+			}
+		},
+		{
+			"file": "rawread/main.go",
+			"settings":
+			{
+				"buffer_size": 2417,
+				"line_ending": "Unix"
+			}
+		},
+		{
+			"file": "usb/device.go",
+			"settings":
+			{
+				"buffer_size": 4700,
+				"line_ending": "Unix"
+			}
+		},
+		{
+			"contents": "Searching 24 files for \"kylelemons\"\n\n/Users/pjvds/Projects/golang/mygo/src/github.com/pjvds/gousb/README.md:\n   22  The gousb project provides a simple but useful example: lsusb.  This binary will list the USB devices connected to your system and various interesting tidbits about them, their configurations, endpoints, etc.  To install it, run the following command:\n   23  \n   24:     go get -v github.com/kylelemons/gousb/lsusb\n   25  \n   26  gousb\n   ..\n   30  Installing the primary gousb package is really easy:\n   31  \n   32:     go get -v github.com/kylelemons/gousb/usb\n   33  \n   34  There is also a `usbid` package that will not be installed by default by this command, but which provides useful information including the human-readable vendor and product codes for detected hardware.  It's not installed by default and not linked into the `usb` package by default because it adds ~400kb to the resulting binary.  If you want both, they can be installed thus:\n   35  \n   36:     go get -v github.com/kylelemons/gousb/usb{,id}\n   37  \n   38  Documentation\n   ..\n   40  The documentation can be viewed via local godoc or via Gary Burd's excellent [GoPkgDoc](http://gopkgdoc.appspot.com):\n   41  \n   42: - [usb](http://gopkgdoc.appspot.com/pkg/github.com/kylelemons/gousb/usb)\n   43: - [usbid](http://gopkgdoc.appspot.com/pkg/github.com/kylelemons/gousb/usbid)\n   44  \n\n5 matches in 1 file\n\n\nSearching 24 files for \"error\"\n\n/Users/pjvds/Projects/golang/mygo/src/github.com/pjvds/gousb/usb/descriptor.go:\n   26  }\n   27  \n   28: func newDescriptor(dev *C.libusb_device) (*Descriptor, error) {\n   29  	var desc C.struct_libusb_device_descriptor\n   30  	if errno := C.libusb_get_device_descriptor(dev, &desc); errno < 0 {\n   31: 		return nil, usbError(errno)\n   32  	}\n   33  \n   ..\n   37  		var cfg *C.struct_libusb_config_descriptor\n   38  		if errno := C.libusb_get_config_descriptor(dev, C.uint8_t(i), &cfg); errno < 0 {\n   39: 			return nil, usbError(errno)\n   40  		}\n   41  		cfgs = append(cfgs, newConfig(dev, cfg))\n\n/Users/pjvds/Projects/golang/mygo/src/github.com/pjvds/gousb/usb/device.go:\n   48  }\n   49  \n   50: func (d *Device) Reset() error {\n   51  	if errno := C.libusb_reset_device(d.handle); errno != 0 {\n   52: 		return usbError(errno)\n   53  	}\n   54  	return nil\n   55  }\n   56  \n   57: func (d *Device) Control(rType, request uint8, val, idx uint16, data []byte) (int, error) {\n   58  	log.Printf(\"control xfer: %d:%d/%d:%d %x\", idx, rType, request, val, string(data))\n   59  	dataSlice := (*reflect.SliceHeader)(unsafe.Pointer(&data))\n   ..\n   68  		C.uint(d.ControlTimeout/time.Millisecond))\n   69  	if n < 0 {\n   70: 		return int(n), usbError(n)\n   71  	}\n   72  	return int(n), nil\n   ..\n   75  // ActiveConfig returns the config id (not the index) of the active configuration.\n   76  // This corresponds to the ConfigInfo.Config field.\n   77: func (d *Device) ActiveConfig() (uint8, error) {\n   78  	var cfg C.int\n   79  	if errno := C.libusb_get_configuration(d.handle, &cfg); errno < 0 {\n   80: 		return 0, usbError(errno)\n   81  	}\n   82  	return uint8(cfg), nil\n   ..\n   86  // The cfg provided is the config id (not the index) of the configuration to set,\n   87  // which corresponds to the ConfigInfo.Config field.\n   88: func (d *Device) SetConfig(cfg uint8) error {\n   89  	if errno := C.libusb_set_configuration(d.handle, C.int(cfg)); errno < 0 {\n   90: 		return usbError(errno)\n   91  	}\n   92  	return nil\n   ..\n   94  \n   95  // Close the device.\n   96: func (d *Device) Close() error {\n   97  	if d.handle == nil {\n   98: 		return fmt.Errorf(\"usb: double close on device\")\n   99  	}\n  100  	d.lock.Lock()\n  ...\n  108  }\n  109  \n  110: func (d *Device) OpenEndpoint(conf, iface, setup, epoint uint8) (Endpoint, error) {\n  111  	end := &endpoint{\n  112  		Device: d,\n  ...\n  143  						end.xfer = isochronous_xfer\n  144  					default:\n  145: 						return nil, fmt.Errorf(\"usb: %s transfer is unsupported\", tt)\n  146  					}\n  147  					goto found\n  148  				}\n  149: 				return nil, fmt.Errorf(\"usb: unknown endpoint %02x\", epoint)\n  150  			}\n  151: 			return nil, fmt.Errorf(\"usb: unknown setup %02x\", setup)\n  152  		}\n  153: 		return nil, fmt.Errorf(\"usb: unknown interface %02x\", iface)\n  154  	}\n  155: 	return nil, fmt.Errorf(\"usb: unknown configuration %02x\", conf)\n  156  \n  157  found:\n  ...\n  159  	// Set the configuration\n  160  	if errno := C.libusb_set_configuration(d.handle, C.int(conf)); errno < 0 {\n  161: 		return nil, fmt.Errorf(\"usb: setcfg: %s\", usbError(errno))\n  162  	}\n  163  \n  164  	// Claim the interface\n  165  	if errno := C.libusb_claim_interface(d.handle, C.int(iface)); errno < 0 {\n  166: 		return nil, fmt.Errorf(\"usb: claim: %s\", usbError(errno))\n  167  	}\n  168  \n  ...\n  175  	// This doesn't seem to work...\n  176  	if errno := C.libusb_set_interface_alt_setting(d.handle, C.int(iface), C.int(setup)); errno < 0 {\n  177: 		//log.Printf(\"ignoring altsetting error: %s\", usbError(errno))\n  178: 		return nil, fmt.Errorf(\"usb: setalt: %s\", usbError(errno))\n  179  	}\n  180  \n  ...\n  182  }\n  183  \n  184: func (d *Device) OpenEndpointNoCheck(conf, iface, setup, epoint uint8) (Endpoint, error) {\n  185  	end := &endpoint{\n  186  		Device: d,\n  ...\n  217  						end.xfer = isochronous_xfer\n  218  					default:\n  219: 						return nil, fmt.Errorf(\"usb: %s transfer is unsupported\", tt)\n  220  					}\n  221  					goto found\n  222  				}\n  223: 				return nil, fmt.Errorf(\"usb: unknown endpoint %02x\", epoint)\n  224  			}\n  225: 			return nil, fmt.Errorf(\"usb: unknown setup %02x\", setup)\n  226  		}\n  227: 		return nil, fmt.Errorf(\"usb: unknown interface %02x\", iface)\n  228  	}\n  229: 	return nil, fmt.Errorf(\"usb: unknown configuration %02x\", conf)\n  230  \n  231  found:\n\n/Users/pjvds/Projects/golang/mygo/src/github.com/pjvds/gousb/usb/endpoint.go:\n   12  \n   13  type Endpoint interface {\n   14: 	Read(b []byte) (int, error)\n   15: 	Write(b []byte) (int, error)\n   16  	Interface() InterfaceSetup\n   17  	Info() EndpointInfo\n   ..\n   22  	InterfaceSetup\n   23  	EndpointInfo\n   24: 	xfer func(*endpoint, []byte, time.Duration) (int, error)\n   25  }\n   26  \n   27: func (e *endpoint) Read(buf []byte) (int, error) {\n   28  	if EndpointDirection(e.Address)&ENDPOINT_DIR_MASK != ENDPOINT_DIR_IN {\n   29: 		return 0, fmt.Errorf(\"usb: read: not an IN endpoint\")\n   30  	}\n   31  \n   ..\n   33  }\n   34  \n   35: func (e *endpoint) Write(buf []byte) (int, error) {\n   36  	if EndpointDirection(e.Address)&ENDPOINT_DIR_MASK != ENDPOINT_DIR_OUT {\n   37: 		return 0, fmt.Errorf(\"usb: write: not an OUT endpoint\")\n   38  	}\n   39  \n   ..\n   46  // TODO(kevlar): (*Endpoint).Close\n   47  \n   48: func bulk_xfer(e *endpoint, buf []byte, timeout time.Duration) (int, error) {\n   49  	if len(buf) == 0 {\n   50  		return 0, nil\n   ..\n   61  		&cnt,\n   62  		C.uint(timeout/time.Millisecond)); errno < 0 {\n   63: 		return 0, usbError(errno)\n   64  	}\n   65  	return int(cnt), nil\n   66  }\n   67  \n   68: func interrupt_xfer(e *endpoint, buf []byte, timeout time.Duration) (int, error) {\n   69  	if len(buf) == 0 {\n   70  		return 0, nil\n   ..\n   81  		&cnt,\n   82  		C.uint(timeout/time.Millisecond)); errno < 0 {\n   83: 		return 0, usbError(errno)\n   84  	}\n   85  	return int(cnt), nil\n\n/Users/pjvds/Projects/golang/mygo/src/github.com/pjvds/gousb/usb/error.go:\n    4  import \"C\"\n    5  \n    6: type usbError C.int\n    7  \n    8: func (e usbError) Error() string {\n    9: 	return \"libusb: \" + usbErrorString[e]\n   10  }\n   11  \n   12  const (\n   13: 	SUCCESS             usbError = C.LIBUSB_SUCCESS\n   14: 	ERROR_IO            usbError = C.LIBUSB_ERROR_IO\n   15: 	ERROR_INVALID_PARAM usbError = C.LIBUSB_ERROR_INVALID_PARAM\n   16: 	ERROR_ACCESS        usbError = C.LIBUSB_ERROR_ACCESS\n   17: 	ERROR_NO_DEVICE     usbError = C.LIBUSB_ERROR_NO_DEVICE\n   18: 	ERROR_NOT_FOUND     usbError = C.LIBUSB_ERROR_NOT_FOUND\n   19: 	ERROR_BUSY          usbError = C.LIBUSB_ERROR_BUSY\n   20: 	ERROR_TIMEOUT       usbError = C.LIBUSB_ERROR_TIMEOUT\n   21: 	ERROR_OVERFLOW      usbError = C.LIBUSB_ERROR_OVERFLOW\n   22: 	ERROR_PIPE          usbError = C.LIBUSB_ERROR_PIPE\n   23: 	ERROR_INTERRUPTED   usbError = C.LIBUSB_ERROR_INTERRUPTED\n   24: 	ERROR_NO_MEM        usbError = C.LIBUSB_ERROR_NO_MEM\n   25: 	ERROR_NOT_SUPPORTED usbError = C.LIBUSB_ERROR_NOT_SUPPORTED\n   26: 	ERROR_OTHER         usbError = C.LIBUSB_ERROR_OTHER\n   27  )\n   28  \n   29: var usbErrorString = map[usbError]string{\n   30  	C.LIBUSB_SUCCESS:             \"success\",\n   31: 	C.LIBUSB_ERROR_IO:            \"i/o error\",\n   32: 	C.LIBUSB_ERROR_INVALID_PARAM: \"invalid param\",\n   33: 	C.LIBUSB_ERROR_ACCESS:        \"bad access\",\n   34: 	C.LIBUSB_ERROR_NO_DEVICE:     \"no device\",\n   35: 	C.LIBUSB_ERROR_NOT_FOUND:     \"not found\",\n   36: 	C.LIBUSB_ERROR_BUSY:          \"device or resource busy\",\n   37: 	C.LIBUSB_ERROR_TIMEOUT:       \"timeout\",\n   38: 	C.LIBUSB_ERROR_OVERFLOW:      \"overflow\",\n   39: 	C.LIBUSB_ERROR_PIPE:          \"pipe error\",\n   40: 	C.LIBUSB_ERROR_INTERRUPTED:   \"interrupted\",\n   41: 	C.LIBUSB_ERROR_NO_MEM:        \"out of memory\",\n   42: 	C.LIBUSB_ERROR_NOT_SUPPORTED: \"not supported\",\n   43: 	C.LIBUSB_ERROR_OTHER:         \"unknown error\",\n   44  }\n   45  \n\n/Users/pjvds/Projects/golang/mygo/src/github.com/pjvds/gousb/usb/iso.go:\n   71  }\n   72  \n   73: func (t *Transfer) Submit(timeout time.Duration) error {\n   74  	log.Printf(\"iso: submitting %#v\", t.xfer)\n   75  	t.xfer.timeout = C.uint(timeout / time.Millisecond)\n   76  	if errno := C.submit(t.xfer); errno < 0 {\n   77: 		return usbError(errno)\n   78  	}\n   79  	return nil\n   80  }\n   81  \n   82: func (t *Transfer) Wait(b []byte) (n int, err error) {\n   83  	select {\n   84  	case <-time.After(10 * time.Second):\n   85: 		return 0, fmt.Errorf(\"wait timed out after 10s\")\n   86  	case <-t.done:\n   87  	}\n   ..\n   95  }\n   96  \n   97: func (t *Transfer) Close() error {\n   98  	C.libusb_free_transfer(t.xfer)\n   99  	return nil\n  100  }\n  101  \n  102: func isochronous_xfer(e *endpoint, buf []byte, timeout time.Duration) (int, error) {\n  103  	t := e.allocTransfer()\n  104  	defer t.Close()\n\n/Users/pjvds/Projects/golang/mygo/src/github.com/pjvds/gousb/usb/misc_test.go:\n   16  	for _, test := range tests {\n   17  		if got, want := test.BCD.Int(), test.Int; got != want {\n   18: 			t.Errorf(\"Int(%x) = %d, want %d\", test.BCD, got, want)\n   19  		}\n   20  		if got, want := test.BCD.String(), test.Str; got != want {\n   21: 			t.Errorf(\"String(%x) = %q, want %q\", test.BCD, got, want)\n   22  		}\n   23  	}\n\n/Users/pjvds/Projects/golang/mygo/src/github.com/pjvds/gousb/usb/usb.go:\n   26  \n   27  	if errno := C.libusb_init(&c.ctx); errno != 0 {\n   28: 		panic(usbError(errno))\n   29  	}\n   30  \n   ..\n   37  			}\n   38  			if errno := C.libusb_handle_events(c.ctx); errno < 0 {\n   39: 				log.Printf(\"handle_events: error: %s\", usbError(errno))\n   40  				continue\n   41  			}\n   ..\n   49  // ListDevices calls each with each enumerated device.\n   50  // If the function returns true, the device is opened and a Device is returned if the operation succeeds.\n   51: // Every Device returned (whether an error is also returned or not) must be closed.\n   52: // If there are any errors enumerating the devices,\n   53  // the final one is returned along with any successfully opened devices.\n   54: func (c *Context) ListDevices(each func(desc *Descriptor) bool) ([]*Device, error) {\n   55  	var list **C.libusb_device\n   56  	cnt := C.libusb_get_device_list(c.ctx, &list)\n   57  	if cnt < 0 {\n   58: 		return nil, usbError(cnt)\n   59  	}\n   60  	defer C.libusb_free_device_list(list, 1)\n   ..\n   67  	}\n   68  \n   69: 	var reterr error\n   70  	ret := []*Device{}\n   71  	for _, dev := range slice {\n   ..\n   88  }\n   89  \n   90: func (c *Context) Close() error {\n   91  	close(c.done)\n   92  	if c.ctx != nil {\n\n/Users/pjvds/Projects/golang/mygo/src/github.com/pjvds/gousb/usb/usb_test.go:\n   54  \n   55  	if len(devs) == 0 {\n   56: 		t.Error(\"no devices available\")\n   57  	}\n   58  \n   ..\n   60  \n   61  	if err != nil {\n   62: 		t.Errorf(\"error opening endpoint: \", err)\n   63  		t.Fail()\n   64  	}\n   ..\n   67  \n   68  	if err != nil {\n   69: 		t.Errorf(\"error opening endpoint: \", err)\n   70  		t.Fail()\n   71  	}\n   ..\n  118  	for i := range devs {\n  119  		if got, want := devs[i].Descriptor, descs[i]; got != want {\n  120: 			t.Errorf(\"dev[%d].Descriptor = %p, want %p\", i, got, want)\n  121  		}\n  122  	}\n\n/Users/pjvds/Projects/golang/mygo/src/github.com/pjvds/gousb/usbid/load.go:\n   28  // stale.  The contents of this file as of February 2012 are embedded in the\n   29  // library itself.\n   30: func LoadFromURL(url string) error {\n   31  	resp, err := http.Get(url)\n   32  	if err != nil {\n\n/Users/pjvds/Projects/golang/mygo/src/github.com/pjvds/gousb/usbid/load_data.go:\n 15784  HUT 07  Keyboard\n 15785  	000  No Event\n 15786: 	001  Keyboard ErrorRollOver\n 15787  	002  Keyboard POSTfail\n 15788: 	003  Keyboard Error Undefined\n 15789  	004  A\n 15790  	005  B\n .....\n 16013  	037  Pause\n 16014  	038  Record\n 16015: 	039  Error\n 16016  	03a  Usage Selected Indicator\n 16017  	03b  Usage In Use Indicator\n .....\n 16468  	08C  Block Load Success\n 16469  	08D  Block Load Full\n 16470: 	08E  Block Load Error\n 16471  	08F  Block Handle\n 16472  	090  PID Block Free Report\n .....\n 16705  	048  Conditioning Flag\n 16706  	049  At Rate OK\n 16707: 	04a  SMB Error Code\n 16708  	04b  Need Replacement\n 16709  	060  At Rate Time To Full\n 16710  	061  At Rate Time To Empty\n 16711  	062  Average Current\n 16712: 	063  Max Error\n 16713  	064  Relative State Of Charge\n 16714  	065  Absolute State Of Charge\n\n/Users/pjvds/Projects/golang/mygo/src/github.com/pjvds/gousb/usbid/parse.go:\n   61  // If a new or specialized file is obtained, this can be used to retrieve the mappings,\n   62  // which can be stored in the global Vendors and Classes map.\n   63: func ParseIDs(r io.Reader) (map[usb.ID]*Vendor, map[uint8]*Class, error) {\n   64  	vendors := make(map[usb.ID]*Vendor, 2800)\n   65  	classes := make(map[uint8]*Class) // TODO(kevlar): count\n   66  \n   67: 	split := func(s string) (kind string, level int, id uint64, name string, err error) {\n   68  		pieces := strings.SplitN(s, \"  \", 2)\n   69  		if len(pieces) != 2 {\n   70: 			err = fmt.Errorf(\"malformatted line %q\", s)\n   71  			return\n   72  		}\n   ..\n   89  		i, err := strconv.ParseUint(pieces[0], 16, 16)\n   90  		if err != nil {\n   91: 			err = fmt.Errorf(\"malformatted id %q: %s\", pieces[0], err)\n   92  			return\n   93  		}\n   ..\n  101  	var device *Product\n  102  \n  103: 	parseVendor := func(level int, raw uint64, name string) error {\n  104  		id := usb.ID(raw)\n  105  \n  ...\n  113  		case 1:\n  114  			if vendor == nil {\n  115: 				return fmt.Errorf(\"product line without vendor line\")\n  116  			}\n  117  \n  ...\n  126  		case 2:\n  127  			if device == nil {\n  128: 				return fmt.Errorf(\"interface line without device line\")\n  129  			}\n  130  \n  ...\n  135  \n  136  		default:\n  137: 			return fmt.Errorf(\"too many levels of nesting for vendor block\")\n  138  		}\n  139  \n  ...\n  145  	var subclass *SubClass\n  146  \n  147: 	parseClass := func(level int, raw uint64, name string) error {\n  148  		id := uint8(raw)\n  149  \n  ...\n  157  		case 1:\n  158  			if class == nil {\n  159: 				return fmt.Errorf(\"subclass line without class line\")\n  160  			}\n  161  \n  ...\n  170  		case 2:\n  171  			if subclass == nil {\n  172: 				return fmt.Errorf(\"protocol line without subclass line\")\n  173  			}\n  174  \n  ...\n  179  \n  180  		default:\n  181: 			return fmt.Errorf(\"too many levels of nesting for class\")\n  182  		}\n  183  \n  ...\n  201  			return nil, nil, err\n  202  		case isPrefix:\n  203: 			return nil, nil, fmt.Errorf(\"line %d: line too long\", lineno)\n  204  		}\n  205  		line := string(b)\n  ...\n  211  		k, level, id, name, err := split(line)\n  212  		if err != nil {\n  213: 			return nil, nil, fmt.Errorf(\"line %d: %s\", lineno, err)\n  214  		}\n  215  		if k != \"\" {\n  ...\n  224  		}\n  225  		if err != nil {\n  226: 			return nil, nil, fmt.Errorf(\"line %d: %s\", lineno, err)\n  227  		}\n  228  	}\n\n/Users/pjvds/Projects/golang/mygo/src/github.com/pjvds/gousb/usbid/parse_test.go:\n  110  		vendors, classes, err := ParseIDs(strings.NewReader(test.Input))\n  111  		if err != nil {\n  112: 			t.Errorf(\"%d. ParseIDs: %s\", idx, err)\n  113  			continue\n  114  		}\n  115  		if got, want := vendors, test.Vendors; !reflect.DeepEqual(got, want) {\n  116: 			t.Errorf(\"%d. Vendor parse mismatch\", idx)\n  117: 			t.Errorf(\" - got:  %+v\", got)\n  118: 			t.Errorf(\" - want: %+v\", want)\n  119  			continue\n  120  		}\n  121  		if got, want := classes, test.Classes; !reflect.DeepEqual(got, want) {\n  122: 			t.Errorf(\"%d. Classes parse mismatch\", idx)\n  123: 			t.Errorf(\" - got:  %+v\", got)\n  124: 			t.Errorf(\" - want: %+v\", want)\n  125  			continue\n  126  		}\n\n158 matches across 12 files\n\n\nSearching 24 files for \"usbError\"\n\n/Users/pjvds/Projects/golang/mygo/src/github.com/pjvds/gousb/usb/descriptor.go:\n   29  	var desc C.struct_libusb_device_descriptor\n   30  	if errno := C.libusb_get_device_descriptor(dev, &desc); errno < 0 {\n   31: 		return nil, usbError(errno)\n   32  	}\n   33  \n   ..\n   37  		var cfg *C.struct_libusb_config_descriptor\n   38  		if errno := C.libusb_get_config_descriptor(dev, C.uint8_t(i), &cfg); errno < 0 {\n   39: 			return nil, usbError(errno)\n   40  		}\n   41  		cfgs = append(cfgs, newConfig(dev, cfg))\n\n/Users/pjvds/Projects/golang/mygo/src/github.com/pjvds/gousb/usb/device.go:\n   50  func (d *Device) Reset() error {\n   51  	if errno := C.libusb_reset_device(d.handle); errno != 0 {\n   52: 		return usbError(errno)\n   53  	}\n   54  	return nil\n   ..\n   68  		C.uint(d.ControlTimeout/time.Millisecond))\n   69  	if n < 0 {\n   70: 		return int(n), usbError(n)\n   71  	}\n   72  	return int(n), nil\n   ..\n   78  	var cfg C.int\n   79  	if errno := C.libusb_get_configuration(d.handle, &cfg); errno < 0 {\n   80: 		return 0, usbError(errno)\n   81  	}\n   82  	return uint8(cfg), nil\n   ..\n   88  func (d *Device) SetConfig(cfg uint8) error {\n   89  	if errno := C.libusb_set_configuration(d.handle, C.int(cfg)); errno < 0 {\n   90: 		return usbError(errno)\n   91  	}\n   92  	return nil\n   ..\n  159  	// Set the configuration\n  160  	if errno := C.libusb_set_configuration(d.handle, C.int(conf)); errno < 0 {\n  161: 		return nil, fmt.Errorf(\"usb: setcfg: %s\", usbError(errno))\n  162  	}\n  163  \n  164  	// Claim the interface\n  165  	if errno := C.libusb_claim_interface(d.handle, C.int(iface)); errno < 0 {\n  166: 		return nil, fmt.Errorf(\"usb: claim: %s\", usbError(errno))\n  167  	}\n  168  \n  ...\n  175  	// This doesn't seem to work...\n  176  	if errno := C.libusb_set_interface_alt_setting(d.handle, C.int(iface), C.int(setup)); errno < 0 {\n  177: 		//log.Printf(\"ignoring altsetting error: %s\", usbError(errno))\n  178: 		return nil, fmt.Errorf(\"usb: setalt: %s\", usbError(errno))\n  179  	}\n  180  \n\n/Users/pjvds/Projects/golang/mygo/src/github.com/pjvds/gousb/usb/endpoint.go:\n   61  		&cnt,\n   62  		C.uint(timeout/time.Millisecond)); errno < 0 {\n   63: 		return 0, usbError(errno)\n   64  	}\n   65  	return int(cnt), nil\n   ..\n   81  		&cnt,\n   82  		C.uint(timeout/time.Millisecond)); errno < 0 {\n   83: 		return 0, usbError(errno)\n   84  	}\n   85  	return int(cnt), nil\n\n/Users/pjvds/Projects/golang/mygo/src/github.com/pjvds/gousb/usb/error.go:\n    4  import \"C\"\n    5  \n    6: type usbError C.int\n    7  \n    8: func (e usbError) Error() string {\n    9: 	return \"libusb: \" + usbErrorString[e]\n   10  }\n   11  \n   12  const (\n   13: 	SUCCESS             usbError = C.LIBUSB_SUCCESS\n   14: 	ERROR_IO            usbError = C.LIBUSB_ERROR_IO\n   15: 	ERROR_INVALID_PARAM usbError = C.LIBUSB_ERROR_INVALID_PARAM\n   16: 	ERROR_ACCESS        usbError = C.LIBUSB_ERROR_ACCESS\n   17: 	ERROR_NO_DEVICE     usbError = C.LIBUSB_ERROR_NO_DEVICE\n   18: 	ERROR_NOT_FOUND     usbError = C.LIBUSB_ERROR_NOT_FOUND\n   19: 	ERROR_BUSY          usbError = C.LIBUSB_ERROR_BUSY\n   20: 	ERROR_TIMEOUT       usbError = C.LIBUSB_ERROR_TIMEOUT\n   21: 	ERROR_OVERFLOW      usbError = C.LIBUSB_ERROR_OVERFLOW\n   22: 	ERROR_PIPE          usbError = C.LIBUSB_ERROR_PIPE\n   23: 	ERROR_INTERRUPTED   usbError = C.LIBUSB_ERROR_INTERRUPTED\n   24: 	ERROR_NO_MEM        usbError = C.LIBUSB_ERROR_NO_MEM\n   25: 	ERROR_NOT_SUPPORTED usbError = C.LIBUSB_ERROR_NOT_SUPPORTED\n   26: 	ERROR_OTHER         usbError = C.LIBUSB_ERROR_OTHER\n   27  )\n   28  \n   29: var usbErrorString = map[usbError]string{\n   30  	C.LIBUSB_SUCCESS:             \"success\",\n   31  	C.LIBUSB_ERROR_IO:            \"i/o error\",\n\n/Users/pjvds/Projects/golang/mygo/src/github.com/pjvds/gousb/usb/iso.go:\n   75  	t.xfer.timeout = C.uint(timeout / time.Millisecond)\n   76  	if errno := C.submit(t.xfer); errno < 0 {\n   77: 		return usbError(errno)\n   78  	}\n   79  	return nil\n\n/Users/pjvds/Projects/golang/mygo/src/github.com/pjvds/gousb/usb/usb.go:\n   26  \n   27  	if errno := C.libusb_init(&c.ctx); errno != 0 {\n   28: 		panic(usbError(errno))\n   29  	}\n   30  \n   ..\n   37  			}\n   38  			if errno := C.libusb_handle_events(c.ctx); errno < 0 {\n   39: 				log.Printf(\"handle_events: error: %s\", usbError(errno))\n   40  				continue\n   41  			}\n   ..\n   56  	cnt := C.libusb_get_device_list(c.ctx, &list)\n   57  	if cnt < 0 {\n   58: 		return nil, usbError(cnt)\n   59  	}\n   60  	defer C.libusb_free_device_list(list, 1)\n\n35 matches across 6 files\n\n\nSearching 24 files for \"usbError\"\n\n/Users/pjvds/Projects/golang/mygo/src/github.com/pjvds/gousb/usb/descriptor.go:\n   29  	var desc C.struct_libusb_device_descriptor\n   30  	if errno := C.libusb_get_device_descriptor(dev, &desc); errno < 0 {\n   31: 		return nil, usbError(errno)\n   32  	}\n   33  \n   ..\n   37  		var cfg *C.struct_libusb_config_descriptor\n   38  		if errno := C.libusb_get_config_descriptor(dev, C.uint8_t(i), &cfg); errno < 0 {\n   39: 			return nil, usbError(errno)\n   40  		}\n   41  		cfgs = append(cfgs, newConfig(dev, cfg))\n\n/Users/pjvds/Projects/golang/mygo/src/github.com/pjvds/gousb/usb/device.go:\n   50  func (d *Device) Reset() error {\n   51  	if errno := C.libusb_reset_device(d.handle); errno != 0 {\n   52: 		return usbError(errno)\n   53  	}\n   54  	return nil\n   ..\n   68  		C.uint(d.ControlTimeout/time.Millisecond))\n   69  	if n < 0 {\n   70: 		return int(n), usbError(n)\n   71  	}\n   72  	return int(n), nil\n   ..\n   78  	var cfg C.int\n   79  	if errno := C.libusb_get_configuration(d.handle, &cfg); errno < 0 {\n   80: 		return 0, usbError(errno)\n   81  	}\n   82  	return uint8(cfg), nil\n   ..\n   88  func (d *Device) SetConfig(cfg uint8) error {\n   89  	if errno := C.libusb_set_configuration(d.handle, C.int(cfg)); errno < 0 {\n   90: 		return usbError(errno)\n   91  	}\n   92  	return nil\n   ..\n  159  	// Set the configuration\n  160  	if errno := C.libusb_set_configuration(d.handle, C.int(conf)); errno < 0 {\n  161: 		return nil, fmt.Errorf(\"usb: setcfg: %s\", usbError(errno))\n  162  	}\n  163  \n  164  	// Claim the interface\n  165  	if errno := C.libusb_claim_interface(d.handle, C.int(iface)); errno < 0 {\n  166: 		return nil, fmt.Errorf(\"usb: claim: %s\", usbError(errno))\n  167  	}\n  168  \n  ...\n  175  	// This doesn't seem to work...\n  176  	if errno := C.libusb_set_interface_alt_setting(d.handle, C.int(iface), C.int(setup)); errno < 0 {\n  177: 		//log.Printf(\"ignoring altsetting error: %s\", usbError(errno))\n  178: 		return nil, fmt.Errorf(\"usb: setalt: %s\", usbError(errno))\n  179  	}\n  180  \n\n/Users/pjvds/Projects/golang/mygo/src/github.com/pjvds/gousb/usb/endpoint.go:\n   61  		&cnt,\n   62  		C.uint(timeout/time.Millisecond)); errno < 0 {\n   63: 		return 0, usbError(errno)\n   64  	}\n   65  	return int(cnt), nil\n   ..\n   81  		&cnt,\n   82  		C.uint(timeout/time.Millisecond)); errno < 0 {\n   83: 		return 0, usbError(errno)\n   84  	}\n   85  	return int(cnt), nil\n\n/Users/pjvds/Projects/golang/mygo/src/github.com/pjvds/gousb/usb/error.go:\n    4  import \"C\"\n    5  \n    6: type usbError C.int\n    7  \n    8: func (e usbError) Error() string {\n    9: 	return \"libusb: \" + usbErrorString[e]\n   10  }\n   11  \n   12  const (\n   13: 	SUCCESS             usbError = C.LIBUSB_SUCCESS\n   14: 	ERROR_IO            usbError = C.LIBUSB_ERROR_IO\n   15: 	ERROR_INVALID_PARAM usbError = C.LIBUSB_ERROR_INVALID_PARAM\n   16: 	ERROR_ACCESS        usbError = C.LIBUSB_ERROR_ACCESS\n   17: 	ERROR_NO_DEVICE     usbError = C.LIBUSB_ERROR_NO_DEVICE\n   18: 	ERROR_NOT_FOUND     usbError = C.LIBUSB_ERROR_NOT_FOUND\n   19: 	ERROR_BUSY          usbError = C.LIBUSB_ERROR_BUSY\n   20: 	ERROR_TIMEOUT       usbError = C.LIBUSB_ERROR_TIMEOUT\n   21: 	ERROR_OVERFLOW      usbError = C.LIBUSB_ERROR_OVERFLOW\n   22: 	ERROR_PIPE          usbError = C.LIBUSB_ERROR_PIPE\n   23: 	ERROR_INTERRUPTED   usbError = C.LIBUSB_ERROR_INTERRUPTED\n   24: 	ERROR_NO_MEM        usbError = C.LIBUSB_ERROR_NO_MEM\n   25: 	ERROR_NOT_SUPPORTED usbError = C.LIBUSB_ERROR_NOT_SUPPORTED\n   26: 	ERROR_OTHER         usbError = C.LIBUSB_ERROR_OTHER\n   27  )\n   28  \n   29: var usbErrorString = map[usbError]string{\n   30  	C.LIBUSB_SUCCESS:             \"success\",\n   31  	C.LIBUSB_ERROR_IO:            \"i/o error\",\n\n/Users/pjvds/Projects/golang/mygo/src/github.com/pjvds/gousb/usb/iso.go:\n   75  	t.xfer.timeout = C.uint(timeout / time.Millisecond)\n   76  	if errno := C.submit(t.xfer); errno < 0 {\n   77: 		return usbError(errno)\n   78  	}\n   79  	return nil\n\n/Users/pjvds/Projects/golang/mygo/src/github.com/pjvds/gousb/usb/usb.go:\n   26  \n   27  	if errno := C.libusb_init(&c.ctx); errno != 0 {\n   28: 		panic(usbError(errno))\n   29  	}\n   30  \n   ..\n   37  			}\n   38  			if errno := C.libusb_handle_events(c.ctx); errno < 0 {\n   39: 				log.Printf(\"handle_events: error: %s\", usbError(errno))\n   40  				continue\n   41  			}\n   ..\n   56  	cnt := C.libusb_get_device_list(c.ctx, &list)\n   57  	if cnt < 0 {\n   58: 		return nil, usbError(cnt)\n   59  	}\n   60  	defer C.libusb_free_device_list(list, 1)\n\n35 matches across 6 files\n\n\nSearching 24 files for \"debug\"\n\n/Users/pjvds/Projects/golang/mygo/src/github.com/pjvds/gousb/lsusb/main.go:\n   11  \n   12  var (\n   13: 	debug = flag.Int(\"debug\", 0, \"libusb debug level (0..3)\")\n   14  )\n   15  \n   ..\n   21  	defer ctx.Close()\n   22  \n   23: 	// Debugging can be turned on; this shows some of the inner workings of the libusb package.\n   24: 	ctx.Debug(*debug)\n   25  \n   26  	// ListDevices is used to find the devices to open.\n\n/Users/pjvds/Projects/golang/mygo/src/github.com/pjvds/gousb/rawread/main.go:\n   16  	setup    = flag.Int(\"setup\", 0, \"Endpoint to which to connect\")\n   17  	endpoint = flag.Int(\"endpoint\", 1, \"Endpoint to which to connect\")\n   18: 	debug    = flag.Int(\"debug\", 3, \"Debug level for libusb\")\n   19  )\n   20  \n   ..\n   26  	defer ctx.Close()\n   27  \n   28: 	ctx.Debug(*debug)\n   29  \n   30  	log.Printf(\"Scanning for device %q...\", *device)\n\n/Users/pjvds/Projects/golang/mygo/src/github.com/pjvds/gousb/usb/usb.go:\n   16  }\n   17  \n   18: func (c *Context) Debug(level int) {\n   19: 	C.libusb_set_debug(c.ctx, C.int(level))\n   20  }\n   21  \n\n/Users/pjvds/Projects/golang/mygo/src/github.com/pjvds/gousb/usb/usb_test.go:\n   11  	c := NewContext()\n   12  	defer c.Close()\n   13: 	c.Debug(0)\n   14  }\n   15  \n   ..\n   17  	c := NewContext()\n   18  	defer c.Close()\n   19: 	c.Debug(0)\n   20  \n   21  	logDevice := func(t *testing.T, desc *Descriptor) {\n   ..\n   75  	c := NewContext()\n   76  	defer c.Close()\n   77: 	c.Debug(0)\n   78  \n   79  	logDevice := func(t *testing.T, desc *Descriptor) {\n\n/Users/pjvds/Projects/golang/mygo/src/github.com/pjvds/gousb/usbid/load_data.go:\n 3541  	de64  Barcode Reader\n 3542  	f000  CY30700 Licorice evaluation board\n 3543: 	f111  CY8CKIT-002 PSoC MiniProg3 Rev A Program and debug kit\n 3544  	f115  PSoC FirstTouch Programmer\n 3545  04b5  ROHM LSI Systems USA, LLC\n ....\n 3885  	1521  USB 2.0 Hub\n 3886  	1a62  GW Instek GSP-830 Spectrum Analyzer (HID)\n 3887: 	2323  Ux500 serial debug port\n 3888  	2533  NFC device (PN533)\n 3889  	8116  Camera\n ....\n 3930  	00e0  PIC32 Starter Board\n 3931  	0a04  AGP LIN Serial Analyzer\n 3932: 	8000  In-Circuit Debugger\n 3933: 	8001  ICD2 in-circuit debugger\n 3934  	8101  PIC24F Starter Kit\n 3935  	900a  PICkit3\n ....\n 4289  	684e  Wave (GT-S8500)\n 4290  	685b  GT-I9100 Phone [Galaxy S II] (mass storage mode)\n 4291: 	685e  GT-I9100 Phone [Galaxy S II] (USB Debugging mode)\n 4292  	6860  GT-I9100 Phone [Galaxy S II]\n 4293  	6875  GT-B3710 Standalone LTE device (Commercial)\n ....\n 4650  	16e3  n30 Handheld Sync\n 4651  	3202  Liquid\n 4652: 	3203  Liquid (Debug mode)\n 4653  	3325  Iconia tablet A500\n 4654  	3341  Iconia tablet A500\n ....\n 8706  	0101  Smartdio Reader/Writer\n 8707  0897  Lauterbach\n 8708: 	0002  Power Debug/Power Debug II\n 8709  089c  United Technologies Research Cntr.\n 8710  089d  Icron Technologies Corp.\n ....\n 10124  	5202  XMC5200 Zippy Drive\n 10125  	5280  XMC5280 Storage Drive\n 10126: 	fff0  ISP5200 Debugger\n 10127  0b87  Plus-One I & T, Inc.\n 10128  0b88  Sigma Koki Co., Ltd, Technology Center\n .....\n 10346  	0bce  Vario MDA\n 10347  	0c01  Dream / ADP1 / G1 / Magic / Tattoo\n 10348: 	0c02  Dream / ADP1 / G1 / Magic / Tattoo (Debug)\n 10349  	0c13  Diamond\n 10350  	0c1f  Sony Ericsson XPERIA X1\n 10351  	0c5f  Snap\n 10352: 	0c87  Desire (debug)\n 10353: 	0c8d  EVO 4G (debug)\n 10354  	0c91  Vision\n 10355  	0c94  Vision\n 10356  	0c97  Legend\n 10357: 	0c99  Desire (debug)\n 10358  	0c9e  Incredible\n 10359: 	0ca2  Desire HD (debug mode)\n 10360  	0ca5  Android Phone [Evo Shift 4G]\n 10361  	0ff8  Desire HD (Tethering Mode)\n .....\n 10736  0c54  Glory, Ltd\n 10737  0c55  Spectrum Digital, Inc.\n 10738: 	0510  Spectrum Digital XDS510 JTAG Debugger\n 10739  	0540  SPI540\n 10740  	5416  TMS320C5416 DSK\n .....\n 11808  	10d4  C902 Phone [PictBridge]\n 11809  	2105  W715 Phone\n 11810: 	2137  Xperia X10 mini (USB debug)\n 11811: 	2138  Xperia X10 mini pro (Debug)\n 11812: 	2149  Xperia X8 (debug)\n 11813  	3137  Xperia X10 mini\n 11814  	3138  Xperia X10 mini pro\n 11815  	3149  Xperia X8\n 11816: 	614f  Xperia X12 (debug mode)\n 11817  	8004  9000 Phone [Mass Storage]\n 11818  	d008  V800-Vodafone 802SE Phone\n .....\n 11906  	6005  T5100\n 11907  	6018  GM360/GD510/GW520/KP501\n 11908: 	618e  Ally/Optimus One/Vortex (debug mode)\n 11909  	618f  Ally/Optimus One\n 11910  	61c6  Vortex (msc)\n .....\n 12207  	0002  F32x USBXpress Device\n 12208  	0003  CommandIR\n 12209: 	8044  USB Debug Adapter\n 12210  	804e  Software Bisque Paramount ME\n 12211  	80a9  CP210x to UART Bridge Controller\n .....\n 12595  	1035  U8120\n 12596  	1037  Ideos\n 12597: 	1038  Ideos (debug mode)\n 12598  	1039  Ideos (tethering mode)\n 12599  	1406  E1750\n .....\n 12923  1457  First International Computer, Inc.\n 12924  	5117  OpenMoko Neo1973 kernel usbnet (g_ether, CDC Ethernet) mode\n 12925: 	5118  OpenMoko Neo1973 Debug board (V2+)\n 12926  	5119  OpenMoko Neo1973 u-boot cdc_acm serial port\n 12927  	5120  OpenMoko Neo1973 u-boot usbtty generic serial\n .....\n 13139  1598  Kunshan Guoji Electronics Co., Ltd.\n 13140  15a2  Freescale Semiconductor, Inc.\n 13141: 	0042  OSBDM - Debug Port\n 13142  	004f  i.MX28 SystemOnChip in RecoveryMode\n 13143  	0052  i.MX50 SystemOnChip in RecoveryMode\n .....\n 13358  	8093  PortGear Serial Port\n 13359  1649  SofTec Microsystems\n 13360: 	0102  uDART In-Circuit Debugger\n 13361  	0200  SpYder USBSPYDER08\n 13362  164a  ChipX\n .....\n 13475  	0477  Teensy Rebootor\n 13476  	0478  Teensy Halfkay Bootloader\n 13477: 	0479  Teensy Debug\n 13478  	047a  Teensy Serial\n 13479: 	047b  Teensy Serial+Debug\n 13480  	047c  Teensy Keyboard\n 13481: 	047d  Teensy Keyboard+Debug\n 13482  	047e  Teensy Mouse\n 13483: 	047f  Teensy Mouse+Debug\n 13484  	0480  Teensy RawHID\n 13485: 	0481  Teensy RawHID+Debug\n 13486  	0482  Teensyduino Keyboard+Mouse+Joystick\n 13487  	0483  Teensyduino Serial\n .....\n 13789  18d1  Google Inc.\n 13790  	4e11  Nexus One\n 13791: 	4e12  Nexus One (debug)\n 13792  	4e13  Nexus One (tether)\n 13793  	4e20  Nexus S (fastboot)\n 13794  	4e21  Nexus S\n 13795: 	4e22  Nexus S (debug)\n 13796  	4e24  Nexus S (tether)\n 13797  	7102  Toshiba Thrive tablet\n .....\n 14633  	41d6  Droid X (Windows media mode)\n 14634  	41d9  Droid/Milestone\n 14635: 	41db  Droid/Milestone (Debug mode)\n 14636  	41de  Droid X (PC mode)\n 14637  	4204  MPx200 Smartphone\n\n49 matches across 5 files\n",
+			"settings":
+			{
+				"buffer_size": 32224,
+				"line_ending": "Unix",
+				"name": "Find Results",
+				"scratch": true
+			}
+		},
+		{
+			"file": "README.md",
+			"settings":
+			{
+				"buffer_size": 1953,
+				"line_ending": "Unix"
+			}
+		},
+		{
+			"file": "usb/error.go",
+			"settings":
+			{
+				"buffer_size": 1627,
+				"line_ending": "Unix"
+			}
+		}
+	],
+	"build_system": "",
+	"command_palette":
+	{
+		"height": 107.0,
+		"selected_items":
+		[
+			[
+				"package in",
+				"Package Control: Install Package"
+			],
+			[
+				"Packa",
+				"Package Control: Install Package"
+			],
+			[
+				"Packa	",
+				"Package Control: Install Package"
+			],
+			[
+				"pack",
+				"Preferences: Browse Packages"
+			]
+		],
+		"width": 449.0
+	},
+	"console":
+	{
+		"height": 125.0
+	},
+	"distraction_free":
+	{
+		"menu_visible": true,
+		"show_minimap": false,
+		"show_open_files": false,
+		"show_tabs": false,
+		"side_bar_visible": false,
+		"status_bar_visible": false
+	},
+	"file_history":
+	[
+		"/Users/pjvds/Library/Application Support/Sublime Text 2/Packages/GoSublime/CHANGELOG.md",
+		"/Users/pjvds/Projects/golang/mygo/src/github.com/pjvds/antport/ant/AntCapabilityInfo.go",
+		"/Users/pjvds/Projects/devnology_website/controllers/event/views/list.jade",
+		"/Users/pjvds/Projects/devnology_website/package.json",
+		"/Users/pjvds/Projects/devnology_website/views/400.jade",
+		"/Users/pjvds/Projects/devnology_website/lib/boot.js",
+		"/Users/pjvds/Projects/devnology_website/lib/db.js",
+		"/Users/pjvds/Projects/devnology_website/app.js",
+		"/Users/pjvds/Projects/devnology_website/models/event.js",
+		"/Users/pjvds/Projects/devnology_website/controllers/event/index.js",
+		"/Users/pjvds/Projects/devnology_website/controllers/event/views/add.jade",
+		"/Users/pjvds/Projects/devnology_website/db.js",
+		"/Users/pjvds/Projects/devnology_website/controllers/event/views/edit.jade",
+		"/Users/pjvds/Projects/devnology_website/README.md",
+		"/Users/pjvds/Projects/devnology_website/controllers/events/view/edit.jade",
+		"/Users/pjvds/Projects/devnology_website/views/add.jade",
+		"/Users/pjvds/Projects/devnology_website/controllers/event/view/list.jade",
+		"/Users/pjvds/Projects/devnology_website/controllers/event/view/edit.jade",
+		"/Users/pjvds/Projects/devnology_website/controllers/events/views/edit.jade",
+		"/Users/pjvds/Projects/devnology_website/routes/events.js",
+		"/Users/pjvds/Projects/devnology_website/controllers/events/index.js"
+	],
+	"find":
+	{
+		"height": 35.0
+	},
+	"find_in_files":
+	{
+		"height": 93.0,
+		"where_history":
+		[
+			"",
+			"/Users/pjvds/Projects/golang/mygo/src/github.com/pjvds/gousb",
+			""
+		]
+	},
+	"find_state":
+	{
+		"case_sensitive": false,
+		"find_history":
+		[
+			"\"github.com/pjvds/",
+			"debug",
+			"usbError",
+			"error",
+			"kylelemons",
+			"\"github.com/pjvds/",
+			"\"github.com/pjvds/gousb/usb\"",
+			"`",
+			"add",
+			"verbose",
+			"index",
+			"db.js",
+			"new"
+		],
+		"highlight": true,
+		"in_selection": false,
+		"preserve_case": false,
+		"regex": false,
+		"replace_history":
+		[
+			"\"github.com/pjvds/",
+			"\"github.com/pjvds/gousb/usb\""
+		],
+		"reverse": false,
+		"show_context": true,
+		"use_buffer2": true,
+		"whole_word": false,
+		"wrap": true
+	},
+	"groups":
+	[
+		{
+			"selected": 1,
+			"sheets":
+			[
+				{
+					"buffer": 0,
+					"file": "usb/usb_test.go",
+					"settings":
+					{
+						"buffer_size": 2693,
+						"regions":
+						{
+						},
+						"selection":
+						[
+							[
+								1201,
+								1201
+							]
+						],
+						"settings":
+						{
+							"syntax": "Packages/Go/Go.tmLanguage",
+							"translate_tabs_to_spaces": false
+						},
+						"translation.x": 0.0,
+						"translation.y": 0.0,
+						"zoom_level": 1.0
+					},
+					"type": "text"
+				},
+				{
+					"buffer": 1,
+					"file": "usbid/describe.go",
+					"settings":
+					{
+						"buffer_size": 2036,
+						"regions":
+						{
+						},
+						"selection":
+						[
+							[
+								0,
+								0
+							]
+						],
+						"settings":
+						{
+							"syntax": "Packages/Go/Go.tmLanguage",
+							"translate_tabs_to_spaces": false
+						},
+						"translation.x": 0.0,
+						"translation.y": 0.0,
+						"zoom_level": 1.0
+					},
+					"type": "text"
+				},
+				{
+					"buffer": 2,
+					"file": "usbid/load.go",
+					"settings":
+					{
+						"buffer_size": 1115,
+						"regions":
+						{
+						},
+						"selection":
+						[
+							[
+								627,
+								627
+							]
+						],
+						"settings":
+						{
+							"syntax": "Packages/Go/Go.tmLanguage",
+							"translate_tabs_to_spaces": false
+						},
+						"translation.x": 0.0,
+						"translation.y": 0.0,
+						"zoom_level": 1.0
+					},
+					"type": "text"
+				},
+				{
+					"buffer": 3,
+					"file": "usbid/parse.go",
+					"settings":
+					{
+						"buffer_size": 4886,
+						"regions":
+						{
+						},
+						"selection":
+						[
+							[
+								0,
+								0
+							]
+						],
+						"settings":
+						{
+							"syntax": "Packages/Go/Go.tmLanguage",
+							"translate_tabs_to_spaces": false
+						},
+						"translation.x": 0.0,
+						"translation.y": 0.0,
+						"zoom_level": 1.0
+					},
+					"type": "text"
+				},
+				{
+					"buffer": 4,
+					"file": "usbid/parse_test.go",
+					"settings":
+					{
+						"buffer_size": 2793,
+						"regions":
+						{
+						},
+						"selection":
+						[
+							[
+								282,
+								282
+							]
+						],
+						"settings":
+						{
+							"syntax": "Packages/Go/Go.tmLanguage",
+							"translate_tabs_to_spaces": false
+						},
+						"translation.x": 0.0,
+						"translation.y": 287.0,
+						"zoom_level": 1.0
+					},
+					"type": "text"
+				},
+				{
+					"buffer": 5,
+					"file": "lsusb/main.go",
+					"settings":
+					{
+						"buffer_size": 2198,
+						"regions":
+						{
+						},
+						"selection":
+						[
+							[
+								65,
+								65
+							]
+						],
+						"settings":
+						{
+							"syntax": "Packages/Go/Go.tmLanguage",
+							"translate_tabs_to_spaces": false
+						},
+						"translation.x": 0.0,
+						"translation.y": 0.0,
+						"zoom_level": 1.0
+					},
+					"type": "text"
+				},
+				{
+					"buffer": 6,
+					"file": "rawread/main.go",
+					"settings":
+					{
+						"buffer_size": 2417,
+						"regions":
+						{
+						},
+						"selection":
+						[
+							[
+								510,
+								510
+							]
+						],
+						"settings":
+						{
+							"syntax": "Packages/Go/Go.tmLanguage",
+							"translate_tabs_to_spaces": false
+						},
+						"translation.x": 0.0,
+						"translation.y": 0.0,
+						"zoom_level": 1.0
+					},
+					"type": "text"
+				},
+				{
+					"buffer": 7,
+					"file": "usb/device.go",
+					"settings":
+					{
+						"buffer_size": 4700,
+						"regions":
+						{
+						},
+						"selection":
+						[
+							[
+								4309,
+								4309
+							]
+						],
+						"settings":
+						{
+							"syntax": "Packages/Go/Go.tmLanguage",
+							"translate_tabs_to_spaces": false
+						},
+						"translation.x": 0.0,
+						"translation.y": 0.0,
+						"zoom_level": 1.0
+					},
+					"type": "text"
+				},
+				{
+					"buffer": 8,
+					"settings":
+					{
+						"buffer_size": 32224,
+						"regions":
+						{
+							"match":
+							{
+								"flags": 112,
+								"regions":
+								[
+									[
+										408,
+										418
+									],
+									[
+										558,
+										568
+									],
+									[
+										1011,
+										1021
+									],
+									[
+										1263,
+										1273
+									],
+									[
+										1345,
+										1355
+									],
+									[
+										1591,
+										1596
+									],
+									[
+										1751,
+										1756
+									],
+									[
+										1955,
+										1960
+									],
+									[
+										2155,
+										2160
+									],
+									[
+										2248,
+										2253
+									],
+									[
+										2397,
+										2402
+									],
+									[
+										2668,
+										2673
+									],
+									[
+										2916,
+										2921
+									],
+									[
+										3045,
+										3050
+									],
+									[
+										3299,
+										3304
+									],
+									[
+										3408,
+										3413
+									],
+									[
+										3524,
+										3529
+									],
+									[
+										3581,
+										3586
+									],
+									[
+										3756,
+										3761
+									],
+									[
+										3908,
+										3913
+									],
+									[
+										4031,
+										4036
+									],
+									[
+										4114,
+										4119
+									],
+									[
+										4191,
+										4196
+									],
+									[
+										4270,
+										4275
+									],
+									[
+										4487,
+										4492
+									],
+									[
+										4516,
+										4521
+									],
+									[
+										4686,
+										4691
+									],
+									[
+										4714,
+										4719
+									],
+									[
+										4941,
+										4946
+									],
+									[
+										4956,
+										4961
+									],
+									[
+										4995,
+										5000
+									],
+									[
+										5024,
+										5029
+									],
+									[
+										5168,
+										5173
+									],
+									[
+										5320,
+										5325
+									],
+									[
+										5443,
+										5448
+									],
+									[
+										5526,
+										5531
+									],
+									[
+										5603,
+										5608
+									],
+									[
+										5682,
+										5687
+									],
+									[
+										5901,
+										5906
+									],
+									[
+										5938,
+										5943
+									],
+									[
+										6116,
+										6121
+									],
+									[
+										6189,
+										6194
+									],
+									[
+										6300,
+										6305
+									],
+									[
+										6431,
+										6436
+									],
+									[
+										6543,
+										6548
+									],
+									[
+										6735,
+										6740
+									],
+									[
+										6893,
+										6898
+									],
+									[
+										7043,
+										7048
+									],
+									[
+										7201,
+										7206
+									],
+									[
+										7370,
+										7375
+									],
+									[
+										7408,
+										7413
+									],
+									[
+										7415,
+										7420
+									],
+									[
+										7463,
+										7468
+									],
+									[
+										7541,
+										7546
+									],
+									[
+										7574,
+										7579
+									],
+									[
+										7597,
+										7602
+									],
+									[
+										7614,
+										7619
+									],
+									[
+										7631,
+										7636
+									],
+									[
+										7654,
+										7659
+									],
+									[
+										7671,
+										7676
+									],
+									[
+										7699,
+										7704
+									],
+									[
+										7722,
+										7727
+									],
+									[
+										7739,
+										7744
+									],
+									[
+										7760,
+										7765
+									],
+									[
+										7783,
+										7788
+									],
+									[
+										7800,
+										7805
+									],
+									[
+										7824,
+										7829
+									],
+									[
+										7847,
+										7852
+									],
+									[
+										7864,
+										7869
+									],
+									[
+										7888,
+										7893
+									],
+									[
+										7911,
+										7916
+									],
+									[
+										7928,
+										7933
+									],
+									[
+										7947,
+										7952
+									],
+									[
+										7970,
+										7975
+									],
+									[
+										7987,
+										7992
+									],
+									[
+										8009,
+										8014
+									],
+									[
+										8032,
+										8037
+									],
+									[
+										8049,
+										8054
+									],
+									[
+										8072,
+										8077
+									],
+									[
+										8095,
+										8100
+									],
+									[
+										8112,
+										8117
+									],
+									[
+										8131,
+										8136
+									],
+									[
+										8154,
+										8159
+									],
+									[
+										8171,
+										8176
+									],
+									[
+										8197,
+										8202
+									],
+									[
+										8220,
+										8225
+									],
+									[
+										8237,
+										8242
+									],
+									[
+										8258,
+										8263
+									],
+									[
+										8281,
+										8286
+									],
+									[
+										8298,
+										8303
+									],
+									[
+										8326,
+										8331
+									],
+									[
+										8349,
+										8354
+									],
+									[
+										8366,
+										8371
+									],
+									[
+										8409,
+										8414
+									],
+									[
+										8430,
+										8435
+									],
+									[
+										8510,
+										8515
+									],
+									[
+										8536,
+										8541
+									],
+									[
+										8561,
+										8566
+									],
+									[
+										8616,
+										8621
+									],
+									[
+										8668,
+										8673
+									],
+									[
+										8719,
+										8724
+									],
+									[
+										8770,
+										8775
+									],
+									[
+										8835,
+										8840
+									],
+									[
+										8884,
+										8889
+									],
+									[
+										8934,
+										8939
+									],
+									[
+										8961,
+										8966
+									],
+									[
+										8986,
+										8991
+									],
+									[
+										9039,
+										9044
+									],
+									[
+										9094,
+										9099
+									],
+									[
+										9149,
+										9154
+									],
+									[
+										9179,
+										9184
+									],
+									[
+										9351,
+										9356
+									],
+									[
+										9538,
+										9543
+									],
+									[
+										9650,
+										9655
+									],
+									[
+										9744,
+										9749
+									],
+									[
+										9869,
+										9874
+									],
+									[
+										10035,
+										10040
+									],
+									[
+										10293,
+										10298
+									],
+									[
+										10437,
+										10442
+									],
+									[
+										10670,
+										10675
+									],
+									[
+										10823,
+										10828
+									],
+									[
+										10838,
+										10843
+									],
+									[
+										11109,
+										11114
+									],
+									[
+										11183,
+										11188
+									],
+									[
+										11378,
+										11383
+									],
+									[
+										11521,
+										11526
+									],
+									[
+										11634,
+										11639
+									],
+									[
+										11759,
+										11764
+									],
+									[
+										11941,
+										11946
+									],
+									[
+										12038,
+										12043
+									],
+									[
+										12046,
+										12051
+									],
+									[
+										12155,
+										12160
+									],
+									[
+										12163,
+										12168
+									],
+									[
+										12340,
+										12345
+									],
+									[
+										12641,
+										12646
+									],
+									[
+										12861,
+										12866
+									],
+									[
+										12930,
+										12935
+									],
+									[
+										13040,
+										13045
+									],
+									[
+										13217,
+										13222
+									],
+									[
+										13368,
+										13373
+									],
+									[
+										13529,
+										13534
+									],
+									[
+										13928,
+										13933
+									],
+									[
+										14145,
+										14150
+									],
+									[
+										14251,
+										14256
+									],
+									[
+										14420,
+										14425
+									],
+									[
+										14603,
+										14608
+									],
+									[
+										14720,
+										14725
+									],
+									[
+										14857,
+										14862
+									],
+									[
+										14975,
+										14980
+									],
+									[
+										15156,
+										15161
+									],
+									[
+										15271,
+										15276
+									],
+									[
+										15410,
+										15415
+									],
+									[
+										15529,
+										15534
+									],
+									[
+										15687,
+										15692
+									],
+									[
+										15876,
+										15881
+									],
+									[
+										16017,
+										16022
+									],
+									[
+										16267,
+										16272
+									],
+									[
+										16426,
+										16431
+									],
+									[
+										16479,
+										16484
+									],
+									[
+										16519,
+										16524
+									],
+									[
+										16670,
+										16675
+									],
+									[
+										16724,
+										16729
+									],
+									[
+										16764,
+										16769
+									],
+									[
+										17117,
+										17125
+									],
+									[
+										17321,
+										17329
+									],
+									[
+										17597,
+										17605
+									],
+									[
+										17743,
+										17751
+									],
+									[
+										17915,
+										17923
+									],
+									[
+										18129,
+										18137
+									],
+									[
+										18347,
+										18355
+									],
+									[
+										18545,
+										18553
+									],
+									[
+										18787,
+										18795
+									],
+									[
+										18855,
+										18863
+									],
+									[
+										19059,
+										19067
+									],
+									[
+										19210,
+										19218
+									],
+									[
+										19379,
+										19387
+									],
+									[
+										19417,
+										19425
+									],
+									[
+										19472,
+										19480
+									],
+									[
+										19550,
+										19558
+									],
+									[
+										19606,
+										19614
+									],
+									[
+										19663,
+										19671
+									],
+									[
+										19731,
+										19739
+									],
+									[
+										19792,
+										19800
+									],
+									[
+										19856,
+										19864
+									],
+									[
+										19920,
+										19928
+									],
+									[
+										19979,
+										19987
+									],
+									[
+										20041,
+										20049
+									],
+									[
+										20104,
+										20112
+									],
+									[
+										20163,
+										20171
+									],
+									[
+										20229,
+										20237
+									],
+									[
+										20290,
+										20298
+									],
+									[
+										20358,
+										20366
+									],
+									[
+										20418,
+										20426
+									],
+									[
+										20439,
+										20447
+									],
+									[
+										20756,
+										20764
+									],
+									[
+										20954,
+										20962
+									],
+									[
+										21122,
+										21130
+									],
+									[
+										21273,
+										21281
+									],
+									[
+										21638,
+										21646
+									],
+									[
+										21842,
+										21850
+									],
+									[
+										22118,
+										22126
+									],
+									[
+										22264,
+										22272
+									],
+									[
+										22436,
+										22444
+									],
+									[
+										22650,
+										22658
+									],
+									[
+										22868,
+										22876
+									],
+									[
+										23066,
+										23074
+									],
+									[
+										23308,
+										23316
+									],
+									[
+										23376,
+										23384
+									],
+									[
+										23580,
+										23588
+									],
+									[
+										23731,
+										23739
+									],
+									[
+										23900,
+										23908
+									],
+									[
+										23938,
+										23946
+									],
+									[
+										23993,
+										24001
+									],
+									[
+										24071,
+										24079
+									],
+									[
+										24127,
+										24135
+									],
+									[
+										24184,
+										24192
+									],
+									[
+										24252,
+										24260
+									],
+									[
+										24313,
+										24321
+									],
+									[
+										24377,
+										24385
+									],
+									[
+										24441,
+										24449
+									],
+									[
+										24500,
+										24508
+									],
+									[
+										24562,
+										24570
+									],
+									[
+										24625,
+										24633
+									],
+									[
+										24684,
+										24692
+									],
+									[
+										24750,
+										24758
+									],
+									[
+										24811,
+										24819
+									],
+									[
+										24879,
+										24887
+									],
+									[
+										24939,
+										24947
+									],
+									[
+										24960,
+										24968
+									],
+									[
+										25277,
+										25285
+									],
+									[
+										25475,
+										25483
+									],
+									[
+										25643,
+										25651
+									],
+									[
+										25794,
+										25802
+									],
+									[
+										26033,
+										26038
+									],
+									[
+										26051,
+										26056
+									],
+									[
+										26070,
+										26075
+									],
+									[
+										26159,
+										26164
+									],
+									[
+										26260,
+										26265
+									],
+									[
+										26267,
+										26272
+									],
+									[
+										26576,
+										26581
+									],
+									[
+										26597,
+										26602
+									],
+									[
+										26609,
+										26614
+									],
+									[
+										26703,
+										26708
+									],
+									[
+										26710,
+										26715
+									],
+									[
+										26898,
+										26903
+									],
+									[
+										26938,
+										26943
+									],
+									[
+										27121,
+										27126
+									],
+									[
+										27213,
+										27218
+									],
+									[
+										27356,
+										27361
+									],
+									[
+										27651,
+										27656
+									],
+									[
+										27856,
+										27861
+									],
+									[
+										28024,
+										28029
+									],
+									[
+										28063,
+										28068
+									],
+									[
+										28274,
+										28279
+									],
+									[
+										28472,
+										28477
+									],
+									[
+										28637,
+										28642
+									],
+									[
+										28649,
+										28654
+									],
+									[
+										28845,
+										28850
+									],
+									[
+										29075,
+										29080
+									],
+									[
+										29187,
+										29192
+									],
+									[
+										29217,
+										29222
+									],
+									[
+										29313,
+										29318
+									],
+									[
+										29372,
+										29377
+									],
+									[
+										29583,
+										29588
+									],
+									[
+										29753,
+										29758
+									],
+									[
+										29796,
+										29801
+									],
+									[
+										29829,
+										29834
+									],
+									[
+										29954,
+										29959
+									],
+									[
+										30155,
+										30160
+									],
+									[
+										30315,
+										30320
+									],
+									[
+										30492,
+										30497
+									],
+									[
+										30726,
+										30731
+									],
+									[
+										30988,
+										30993
+									],
+									[
+										31210,
+										31215
+									],
+									[
+										31374,
+										31379
+									],
+									[
+										31438,
+										31443
+									],
+									[
+										31506,
+										31511
+									],
+									[
+										31568,
+										31573
+									],
+									[
+										31632,
+										31637
+									],
+									[
+										31807,
+										31812
+									],
+									[
+										31929,
+										31934
+									],
+									[
+										32119,
+										32124
+									]
+								],
+								"scope": ""
+							}
+						},
+						"selection":
+						[
+							[
+								26047,
+								26047
+							]
+						],
+						"settings":
+						{
+							"detect_indentation": false,
+							"output_tag": 5,
+							"result_base_dir": "",
+							"result_file_regex": "^([A-Za-z\\\\/<].*):$",
+							"result_line_regex": "^ +([0-9]+):",
+							"scroll_past_end": true,
+							"syntax": "Packages/Default/Find Results.hidden-tmLanguage"
+						},
+						"translation.x": 0.0,
+						"translation.y": 11415.0,
+						"zoom_level": 1.0
+					},
+					"type": "text"
+				},
+				{
+					"buffer": 9,
+					"file": "README.md",
+					"settings":
+					{
+						"buffer_size": 1953,
+						"regions":
+						{
+						},
+						"selection":
+						[
+							[
+								152,
+								153
+							]
+						],
+						"settings":
+						{
+							"syntax": "Packages/Markdown/Markdown.tmLanguage"
+						},
+						"translation.x": 0.0,
+						"translation.y": 0.0,
+						"zoom_level": 1.0
+					},
+					"type": "text"
+				},
+				{
+					"buffer": 10,
+					"file": "usb/error.go",
+					"settings":
+					{
+						"buffer_size": 1627,
+						"regions":
+						{
+						},
+						"selection":
+						[
+							[
+								64,
+								72
+							]
+						],
+						"settings":
+						{
+							"syntax": "Packages/Go/Go.tmLanguage",
+							"translate_tabs_to_spaces": false
+						},
+						"translation.x": 0.0,
+						"translation.y": 0.0,
+						"zoom_level": 1.0
+					},
+					"type": "text"
+				}
+			]
+		}
+	],
+	"incremental_find":
+	{
+		"height": 0.0
+	},
+	"input":
+	{
+		"height": 31.0
+	},
+	"layout":
+	{
+		"cells":
+		[
+			[
+				0,
+				0,
+				1,
+				1
+			]
+		],
+		"cols":
+		[
+			0.0,
+			1.0
+		],
+		"rows":
+		[
+			0.0,
+			1.0
+		]
+	},
+	"menu_visible": true,
+	"output.exec":
+	{
+		"height": 174.0
+	},
+	"replace":
+	{
+		"height": 64.0
+	},
+	"save_all_on_build": true,
+	"select_file":
+	{
+		"height": 0.0,
+		"selected_items":
+		[
+			[
+				"usberror",
+				"usb/error.go"
+			]
+		],
+		"width": 0.0
+	},
+	"select_project":
+	{
+		"height": 0.0,
+		"selected_items":
+		[
+		],
+		"width": 0.0
+	},
+	"show_minimap": true,
+	"show_open_files": false,
+	"show_tabs": true,
+	"side_bar_visible": true,
+	"side_bar_width": 219.0,
+	"status_bar_visible": true
+}
