@@ -174,9 +174,61 @@ found:
 	// Choose the alternate
 	// This doesn't seem to work...
 	if errno := C.libusb_set_interface_alt_setting(d.handle, C.int(iface), C.int(setup)); errno < 0 {
-		//log.Printf("ignoring altsetting error: %s", usbError(errno))
-		return nil, fmt.Errorf("usb: setalt: %s", usbError(errno))
+		log.Printf("ignoring altsetting error: %s", usbError(errno))
+		// 	return nil, fmt.Errorf("usb: setalt: %s", usbError(errno))
 	}
+
+	return end, nil
+}
+
+func (d *Device) OpenEndpointNoCheck(conf, iface, setup, epoint uint8) (Endpoint, error) {
+	end := &endpoint{
+		Device: d,
+	}
+
+	for _, c := range d.Configs {
+		if c.Config != conf {
+			continue
+		}
+		fmt.Printf("found conf: %#v\n", c)
+		for _, i := range c.Interfaces {
+			if i.Number != iface {
+				continue
+			}
+			fmt.Printf("found iface: %#v\n", i)
+			for _, s := range i.Setups {
+				if s.Alternate != setup {
+					continue
+				}
+				fmt.Printf("found setup: %#v\n", s)
+				for _, e := range s.Endpoints {
+					fmt.Printf("ep %02x search: %#v\n", epoint, s)
+					if e.Address != epoint {
+						continue
+					}
+					end.InterfaceSetup = s
+					end.EndpointInfo = e
+					switch tt := TransferType(e.Attributes) & TRANSFER_TYPE_MASK; tt {
+					case TRANSFER_TYPE_BULK:
+						end.xfer = bulk_xfer
+					case TRANSFER_TYPE_INTERRUPT:
+						end.xfer = interrupt_xfer
+					case TRANSFER_TYPE_ISOCHRONOUS:
+						end.xfer = isochronous_xfer
+					default:
+						return nil, fmt.Errorf("usb: %s transfer is unsupported", tt)
+					}
+					goto found
+				}
+				return nil, fmt.Errorf("usb: unknown endpoint %02x", epoint)
+			}
+			return nil, fmt.Errorf("usb: unknown setup %02x", setup)
+		}
+		return nil, fmt.Errorf("usb: unknown interface %02x", iface)
+	}
+	return nil, fmt.Errorf("usb: unknown configuration %02x", conf)
+
+found:
 
 	return end, nil
 }
