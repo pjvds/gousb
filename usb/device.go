@@ -155,80 +155,30 @@ func (d *Device) OpenEndpoint(conf, iface, setup, epoint uint8) (Endpoint, error
 	return nil, fmt.Errorf("usb: unknown configuration %02x", conf)
 
 found:
-
-	// Set the configuration
-	if errno := C.libusb_set_configuration(d.handle, C.int(conf)); errno < 0 {
-		return nil, fmt.Errorf("usb: setcfg: %s", usbError(errno))
-	}
-
-	// Claim the interface
-	if errno := C.libusb_claim_interface(d.handle, C.int(iface)); errno < 0 {
-		return nil, fmt.Errorf("usb: claim: %s", usbError(errno))
-	}
-
 	// Increment the claim count
 	d.lock.Lock()
-	d.claimed[iface]++
-	d.lock.Unlock() // unlock immediately because the next calls may block
+	defer d.lock.Unlock()
 
-	// Choose the alternate
-	if errno := C.libusb_set_interface_alt_setting(d.handle, C.int(iface), C.int(setup)); errno < 0 {
-		// This doesn't seem to work on Mac OSX, it works on my Ubuntu machine.
-		log.Printf("ignoring altsetting error: %s", usbError(errno))
-		// 	return nil, fmt.Errorf("usb: setalt: %s", usbError(errno))
-	}
-
-	return end, nil
-}
-
-func (d *Device) OpenEndpointNoCheck(conf, iface, setup, epoint uint8) (Endpoint, error) {
-	end := &endpoint{
-		Device: d,
-	}
-
-	for _, c := range d.Configs {
-		if c.Config != conf {
-			continue
+	// Only claim when needed
+	if d.claimed[iface] == 0 {
+		// Set the configuration
+		if errno := C.libusb_set_configuration(d.handle, C.int(conf)); errno < 0 {
+			return nil, fmt.Errorf("usb: setcfg: %s", usbError(errno))
 		}
-		fmt.Printf("found conf: %#v\n", c)
-		for _, i := range c.Interfaces {
-			if i.Number != iface {
-				continue
-			}
-			fmt.Printf("found iface: %#v\n", i)
-			for _, s := range i.Setups {
-				if s.Alternate != setup {
-					continue
-				}
-				fmt.Printf("found setup: %#v\n", s)
-				for _, e := range s.Endpoints {
-					fmt.Printf("ep %02x search: %#v\n", epoint, s)
-					if e.Address != epoint {
-						continue
-					}
-					end.InterfaceSetup = s
-					end.EndpointInfo = e
-					switch tt := TransferType(e.Attributes) & TRANSFER_TYPE_MASK; tt {
-					case TRANSFER_TYPE_BULK:
-						end.xfer = bulk_xfer
-					case TRANSFER_TYPE_INTERRUPT:
-						end.xfer = interrupt_xfer
-					case TRANSFER_TYPE_ISOCHRONOUS:
-						end.xfer = isochronous_xfer
-					default:
-						return nil, fmt.Errorf("usb: %s transfer is unsupported", tt)
-					}
-					goto found
-				}
-				return nil, fmt.Errorf("usb: unknown endpoint %02x", epoint)
-			}
-			return nil, fmt.Errorf("usb: unknown setup %02x", setup)
-		}
-		return nil, fmt.Errorf("usb: unknown interface %02x", iface)
-	}
-	return nil, fmt.Errorf("usb: unknown configuration %02x", conf)
 
-found:
+		// Claim the interface
+		if errno := C.libusb_claim_interface(d.handle, C.int(iface)); errno < 0 {
+			return nil, fmt.Errorf("usb: claim: %s", usbError(errno))
+		}
+
+		d.claimed[iface]++
+
+		// Choose the alternate
+		if errno := C.libusb_set_interface_alt_setting(d.handle, C.int(iface), C.int(setup)); errno < 0 {
+			// This doesn't seem to work on Mac OSX, it works on my Ubuntu machine.
+			log.Printf("ignoring altsetting error: %s", usbError(errno))
+		}
+	}
 
 	return end, nil
 }
