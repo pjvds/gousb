@@ -172,8 +172,8 @@ found:
 	d.lock.Unlock() // unlock immediately because the next calls may block
 
 	// Choose the alternate
-	// This doesn't seem to work...
 	if errno := C.libusb_set_interface_alt_setting(d.handle, C.int(iface), C.int(setup)); errno < 0 {
+		// This doesn't seem to work on Mac OSX, it works on my Ubuntu machine.
 		log.Printf("ignoring altsetting error: %s", usbError(errno))
 		// 	return nil, fmt.Errorf("usb: setalt: %s", usbError(errno))
 	}
